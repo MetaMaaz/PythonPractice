@@ -14,9 +14,8 @@ symbols = string.punctuation
 numbers = string.digits
 
 password_list = []
-password_list += random.choices(letters, k=nr_letters)
-password_list += random.choices(symbols, k=nr_symbols)
-password_list += random.choices(numbers, k=nr_numbers)
+for pool, count in [(letters, nr_letters), (symbols, nr_symbols), (numbers, nr_numbers)]:
+    password_list += random.choices(pool, k=count)
 
 random.shuffle(password_list)
 password = "".join(password_list)
