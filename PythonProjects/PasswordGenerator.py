@@ -4,12 +4,16 @@ import hashlib
 import urllib.request
 import subprocess
 import platform
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def check_hibp(password):
     sha1 = hashlib.sha1(password.encode()).hexdigest().upper()
     prefix, suffix = sha1[:5], sha1[5:]
-    url = f"https://api.pwnedpasswords.com/range/{prefix}"
+    url = f"{os.getenv('HIBP_URL')}/{prefix}"
     try:
         with urllib.request.urlopen(url) as response:
             hashes = response.read().decode()
