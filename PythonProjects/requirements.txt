@@ -1,0 +1,4 @@
+python-dotenv>=1.0.0
+
+# Dev dependencies
+pytest>=7.0.0

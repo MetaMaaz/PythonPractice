@@ -1,3 +1,4 @@
+import argparse
 import secrets
 import string
 import hashlib
@@ -207,65 +208,138 @@ def time_to_crack(entropy_bits):
         return f"{seconds / 31_536_000:,.0f} years"
 
 
-if __name__ == "__main__":
-    print("Welcome to the Password Generator!")
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Secure password generator with HIBP breach checking"
+    )
+    parser.add_argument("--letters", "-l", type=int, default=None, metavar="N",
+                        help="number of letters (default: prompt)")
+    parser.add_argument("--symbols", "-s", type=int, default=None, metavar="N",
+                        help="number of symbols (default: prompt)")
+    parser.add_argument("--numbers", "-n", type=int, default=None, metavar="N",
+                        help="number of numbers (default: prompt)")
+    parser.add_argument("--no-ambiguous", action="store_true",
+                        help="exclude ambiguous characters (0, O, l, 1, I)")
+    parser.add_argument("--no-breach-check", action="store_true",
+                        help="skip HaveIBeenPwned breach check")
+    parser.add_argument("--no-clipboard", action="store_true",
+                        help="do not copy password to clipboard")
+    parser.add_argument("--show", action="store_true",
+                        help="print password to stdout")
+    parser.add_argument("--count", "-c", type=int, default=1, metavar="N",
+                        help="number of passwords to generate (default: 1)")
+    return parser.parse_args()
 
-    min_length = int(os.getenv("MIN_PASSWORD_LENGTH", 4))
 
-    while True:
-        nr_letters = get_int_input("How many letters would you like in your password?")
-        nr_symbols = get_int_input("How many symbols would you like?")
-        nr_numbers = get_int_input("How many numbers would you like?")
+def _process_one_password(args, nr_letters, nr_symbols, nr_numbers, total):
+    password = generate_password(nr_letters, nr_symbols, nr_numbers, args.no_ambiguous)
+    strength = get_strength(nr_letters, nr_symbols, nr_numbers)
+    entropy = calculate_entropy(total, nr_letters, nr_symbols, nr_numbers, args.no_ambiguous)
+    crack_time = time_to_crack(entropy)
 
-        total = nr_letters + nr_symbols + nr_numbers
-        if total == 0:
-            print("Password must have at least 1 character. Try again.")
-            logger.warning("User requested 0-length password")
-            continue
-        if total < min_length:
-            print(f"Password must be at least {min_length} characters. Try again.")
-            logger.warning("User requested password below minimum length")
-            continue
+    if args.show or args.count > 1:
+        print(f"Password: {password}")
+    print(f"Strength: {strength} | Entropy: {entropy:.1f} bits | Crack time: {crack_time}")
+    logger.info("CLI: Strength=%s, Entropy=%.1f bits, Crack time=%s", strength, entropy, crack_time)
 
-        exclude_input = input("Exclude ambiguous characters (0, O, l, 1, I)? (yes/no): ").strip().lower()
-        exclude_ambiguous = exclude_input == "yes"
-
-        password = generate_password(nr_letters, nr_symbols, nr_numbers, exclude_ambiguous)
-        strength = get_strength(nr_letters, nr_symbols, nr_numbers)
-        length = nr_letters + nr_symbols + nr_numbers
-        entropy = calculate_entropy(length, nr_letters, nr_symbols, nr_numbers, exclude_ambiguous)
-        crack_time = time_to_crack(entropy)
-
-        show_input = input("Show password on screen? (yes/no): ").strip().lower()
-        if show_input == "yes":
-            print(f"\nYour password is: {password}")
-        else:
-            print("\nPassword hidden — it will be copied to clipboard.")
-
-        print(f"Password strength: {strength}")
-        print(f"Entropy: {entropy:.1f} bits")
-        print(f"Estimated time to crack: {crack_time}")
-        logger.info("Strength=%s, Entropy=%.1f bits, Crack time=%s", strength, entropy, crack_time)
-
+    if not args.no_breach_check:
         breach_count = check_hibp(password)
         if breach_count is None:
             print("Could not reach HaveIBeenPwned — skipping breach check.")
-            copy_to_clipboard(password)
         elif breach_count > 0:
-            print(f"Warning: This password has appeared in {breach_count} data breaches.")
-            answer = input("Do you still want to copy it to clipboard? (yes/no): ").strip().lower()
-            if answer == "yes":
-                copy_to_clipboard(password)
+            print(f"Warning: appeared in {breach_count} data breaches.")
         else:
-            print("This password has not appeared in any known breaches.")
-            copy_to_clipboard(password)
+            print("Not found in any known breaches.")
 
-        # Clear password from memory
-        del password
-        gc.collect()
+    if not args.no_clipboard and args.count == 1:
+        copy_to_clipboard(password)
 
-        again = input("\nGenerate another password? (yes/no): ").strip().lower()
-        if again != "yes":
-            print("Goodbye!")
-            logger.info("User exited the program")
-            break
+    del password
+    gc.collect()
+
+
+def run_cli(args):
+    min_length = int(os.getenv("MIN_PASSWORD_LENGTH", 4))
+    nr_letters = args.letters or 0
+    nr_symbols = args.symbols or 0
+    nr_numbers = args.numbers or 0
+    total = nr_letters + nr_symbols + nr_numbers
+
+    if total == 0:
+        print("Error: specify at least one of --letters, --symbols, --numbers.")
+        return
+    if total < min_length:
+        print(f"Error: password must be at least {min_length} characters.")
+        return
+
+    for _ in range(args.count):
+        _process_one_password(args, nr_letters, nr_symbols, nr_numbers, total)
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    cli_mode = any(x is not None for x in [args.letters, args.symbols, args.numbers])
+
+    if cli_mode:
+        run_cli(args)
+    else:
+        print("Welcome to the Password Generator!")
+
+        min_length = int(os.getenv("MIN_PASSWORD_LENGTH", 4))
+
+        while True:
+            nr_letters = get_int_input("How many letters would you like in your password?")
+            nr_symbols = get_int_input("How many symbols would you like?")
+            nr_numbers = get_int_input("How many numbers would you like?")
+
+            total = nr_letters + nr_symbols + nr_numbers
+            if total == 0:
+                print("Password must have at least 1 character. Try again.")
+                logger.warning("User requested 0-length password")
+                continue
+            if total < min_length:
+                print(f"Password must be at least {min_length} characters. Try again.")
+                logger.warning("User requested password below minimum length")
+                continue
+
+            exclude_input = input("Exclude ambiguous characters (0, O, l, 1, I)? (yes/no): ").strip().lower()
+            exclude_ambiguous = exclude_input == "yes"
+
+            password = generate_password(nr_letters, nr_symbols, nr_numbers, exclude_ambiguous)
+            strength = get_strength(nr_letters, nr_symbols, nr_numbers)
+            length = nr_letters + nr_symbols + nr_numbers
+            entropy = calculate_entropy(length, nr_letters, nr_symbols, nr_numbers, exclude_ambiguous)
+            crack_time = time_to_crack(entropy)
+
+            show_input = input("Show password on screen? (yes/no): ").strip().lower()
+            if show_input == "yes":
+                print(f"\nYour password is: {password}")
+            else:
+                print("\nPassword hidden — it will be copied to clipboard.")
+
+            print(f"Password strength: {strength}")
+            print(f"Entropy: {entropy:.1f} bits")
+            print(f"Estimated time to crack: {crack_time}")
+            logger.info("Strength=%s, Entropy=%.1f bits, Crack time=%s", strength, entropy, crack_time)
+
+            breach_count = check_hibp(password)
+            if breach_count is None:
+                print("Could not reach HaveIBeenPwned — skipping breach check.")
+                copy_to_clipboard(password)
+            elif breach_count > 0:
+                print(f"Warning: This password has appeared in {breach_count} data breaches.")
+                answer = input("Do you still want to copy it to clipboard? (yes/no): ").strip().lower()
+                if answer == "yes":
+                    copy_to_clipboard(password)
+            else:
+                print("This password has not appeared in any known breaches.")
+                copy_to_clipboard(password)
+
+            del password
+            gc.collect()
+
+            again = input("\nGenerate another password? (yes/no): ").strip().lower()
+            if again != "yes":
+                print("Goodbye!")
+                logger.info("User exited the program")
+                break
